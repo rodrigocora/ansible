@@ -1,0 +1,37 @@
+---
+
+- name: Create mount point temporary directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ postgres_user }}"
+    group: "{{ postgres_group }}"
+    mode: 0777
+  with_items:
+    - "/postgres_repo"
+    - "{{ postgres_home_install }}/postgres_repo"
+
+- name: Copy repo file from ansible server to postgres servers
+  shell: |
+    scp /tmp/edb_redhat_rhel-7-x86_64.tar.gz {{ inventory_hostname }}:/postgres_repo
+  when: inventory_hostname | lower != ( ansible_play_hosts | first ) | lower
+  become_user: "{{ ans_user }}"
+  delegate_to: "{{ ansible_play_hosts | first }}"
+
+- name: Unarchive repository
+  unarchive:
+    src: /postgres_repo/edb_redhat_rhel-7-x86_64.tar.gz
+    dest: "{{ postgres_home_install }}/postgres_repo"
+    owner: "{{ postgres_user }}"
+    group: "{{ postgres_group }}"
+    remote_src: true
+
+- name: Create repository
+  yum_repository:
+    name: edb_repo
+    description: "EDB Local Repo"
+    baseurl: "file://{{ postgres_home_install }}/postgres_repo"
+    enabled: true
+    gpgcheck: false
+
+...

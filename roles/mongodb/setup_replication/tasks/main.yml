@@ -1,0 +1,40 @@
+---
+- name: Add replication parameter to {{ mongo_base_install }}/config/mongod.conf
+    blockinfile:
+      dest: "{{ mongo_base_install }}/config/mongod.conf"
+      marker: "# {mark} REPLICATION PARAMETERS"
+      block: |
+        replication:
+          replSetName: rs0
+    register: replSetup
+      
+  - name: Restart mongod service to enable user authentication
+    systemd:
+      state: restarted
+      name: mongod.service
+    become: true
+    when: replSetup.changed
+  
+  - block:
+    - name: Create {{ mongo_base_install }}/stage/replication_setup.js script to setup mongodb replication
+      blockinfile:
+        dest: "{{ mongo_base_install }}/stage/replication_setup.js"
+        marker: "// {mark} SETUP REPLICATION"
+        block: |
+          rs.initiate( {
+          _id : "rs0",
+            members: [
+                {% for host in ansible_play_hosts %} { _id: {{ (loop.index - 1) | int }}, host: " {{ host }}:{{ mongo_port }}" }{% if not loop.last%},
+                {% endif %}{% endfor %}  
+            ]
+          }) 
+          rs.initiate()
+        create: true
+        owner: "{{ mongo_user }}"
+        group: "{{ mongo_group }}"
+
+    - name: Setup replication
+      shell: "/usr/local/bin/mongo -u mongo-root -p {{ mongo_root_pass }} --port {{ mongo_port }} --host {{ inventory_hostname }} < {{ mongo_base_install }}/stage/replication_setup.js"
+    run_once: true
+    delegate_to: "{{ ansible_play_hosts | first}}"
+...

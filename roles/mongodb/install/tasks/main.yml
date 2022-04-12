@@ -1,0 +1,319 @@
+---
+- name: Create mongod group
+  group: 
+    name: "{{ mongo_group }}" 
+    gid: "{{ mongo_gid }}" 
+    state: present
+  become: true
+
+- name: Create mongod user
+  user: 
+    name: "{{ mongo_user }}" 
+    group: "{{ mongo_group }}" 
+    uid: "{{ mongo_uid }}" 
+    home: "{{ mongo_home }}" 
+  become: true
+
+- name: Create lvm volumes
+  vars:
+    disk_name: "{{ mongo_base_disk }}"
+    vg_name: "{{ mongo_vg_name }}"
+    user: "{{ item.user }}"
+    group: "{{ item.group }}"
+    mount_point: "{{ item.mount_point }}"
+    lv_name: "{{ item.lv_name }}"
+    lv_size: "{{ item.lv_size }}"
+  include_tasks: create_lvm_mount_points.yml
+  with_items:
+    - {user: "{{ mongo_user }}", group: "{{ mongo_group }}", mount_point: "{{ mongo_base_install }}", lv_name: lv_mongohome, lv_size: 10G }
+    - {user: "{{ mongo_user }}", group: "{{ mongo_group }}", mount_point: "{{ mongo_base_data }}", lv_name: lv_mongodata, lv_size: 100%FREE }
+
+- name: Add {{ mongo_user }} to sudoers
+  lineinfile:
+    dest: /etc/sudoers
+    line: '{{ mongo_user }} ALL=(ALL) NOPASSWD: ALL'
+    owner: root
+    mode:  0600
+  become: true
+
+- name: Set shell limits for {{ mongo_user }} user
+  pam_limits:
+    domain: "{{ mongo_user }}"
+    dest: /etc/security/limits.d/99-mongodb-nproc.conf
+    limit_item: "{{ item.name }}"
+    limit_type: "{{ item.type }}"
+    value: "{{ item.value }}"
+  with_items:
+    - {name: nproc, type: soft, value: 64000}
+    - {name: nproc, type: hard, value: 64000}
+    - {name: nofile, type: soft, value: 64000}
+    - {name: nofile, type: hard, value: 64000}
+    - {name: memlock, type: soft, value: unlimited}
+    - {name: memlock, type: hard, value: unlimited}
+    - {name: as, type: soft, value: unlimited}
+    - {name: as, type: hard, value: unlimited}
+    - {name: cpu, type: soft, value: unlimited}
+    - {name: cpu, type: hard, value: unlimited}
+    - {name: fsize, type: soft, value: unlimited}
+    - {name: fsize, type: hard, value: unlimited}
+  become: true
+
+- name: Add environment variables to {{ mongo_user }} user
+  blockinfile:
+    dest: "{{ mongo_home }}/.bash_profile"
+    block: |
+      # .bash_profile
+      # Get the aliases and functions
+      export PS1="[\u@\h \W]\\$ "
+      if [ -f ~/.bashrc ]; then
+                . ~/.bashrc
+      fi   
+      # User specific environment and startup programs
+      PATH=$PATH:$HOME/.local/bin:$HOME/bin
+      export PATH={{ mongo_base_install }}/mongo-4.2/bin:$PATH
+    create: true
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+  become: true
+
+- name: Create required directories and set its permissions
+  file:
+    dest: "{{ item }}"
+    mode: '0775'
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+    state: directory
+    recurse: true
+  become: true
+  with_items:
+    - "{{ mongo_base_install }}/log"
+    - "{{ mongo_base_install }}/config"
+    - "{{ mongo_base_install }}/scripts"
+    - "{{ mongo_base_install }}/ssl"
+    - "{{ mongo_base_install }}/stage"
+
+- name: Install packages dependecies
+  yum:
+    name: ['numactl','cyrus-sasl','cyrus-sasl-gssapi','cyrus-sasl-plain','krb5-libs','libcurl','net-snmp','openldap','openssl','xz-libs','libnetsnmpmibs.so.31*','checkpolicy']
+  become: true
+
+- name: Unarchive mongodb install files
+  unarchive:
+    src: "{{ installer_filename }}"
+    dest: "{{ mongo_base_install }}"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+  become: true
+
+- name: Rename mongo install dir
+  command: "mv {{ mongo_base_install }}/mongodb-linux-x86_64-enterprise-rhel70-4.2.6 {{ mongo_base_install }}/mongo-4.2"
+  become: true
+  args:
+    creates: "{{ mongo_base_install }}/mongo-4.2"
+
+
+- name: Check {{ mongo_base_install }}/mongo-4.2 permissions
+  file:
+    dest: "{{ mongo_base_install }}/mongo-4.2"
+    recurse: true
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+  become: true
+
+- name: Get {{ mongo_base_install }}/mongo-4.2/bin/ file list
+  find:
+    path: "{{ mongo_base_install }}/mongo-4.2/bin/"
+  register: mongo_exec_file_list
+  become: true
+
+- name: Create symlink on /usr/local/bin/
+  file:
+    src: "{{ item.path }}"
+    dest: "/usr/local/bin/{{ item.path | basename }}"
+    state: link
+    force: true
+  become: true
+  with_items:
+    - "{{ mongo_exec_file_list.files }}"
+
+- name: Create /usr/bin/mongod symlink
+  file:
+    src: /usr/local/bin/mongod
+    dest: /usr/bin/mongod
+    state: link
+    force: true
+  become: true
+
+- name: Configure logrotate
+  blockinfile:
+    path: /etc/logrotate.d/mongod
+    create: true
+    owner: root
+    group: root
+    block: |
+      {{ mongo_base_install }}/log/mongod.log {
+        monthly
+        copytruncate
+        rotate 6
+        compress
+      }
+  become: true
+
+# Run tasks bellow only if SELinux enforce is need. Check the doc.: https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
+# - name: Create custom policy file
+#   blockinfile:
+#     path: "{{ mongo_base_install }}/config/mongodb_cgroup_memory.te"
+#     block: |
+#       module mongodb_cgroup_memory 1.0;
+
+#       require {
+#           type cgroup_t;
+#           type mongod_t;
+#           class dir search;
+#           class file { getattr open read };
+#       }
+
+#       #============= mongod_t ==============
+#       allow mongod_t cgroup_t:dir search;
+#       allow mongod_t cgroup_t:file { getattr open read };
+#     create: true
+#     owner: "{{ mongo_user }}"
+#     group: "{{ mongo_group }}"
+#   become: true
+
+# - name: Compile and load custom policy module
+#   shell: |
+#     sudo /bin/checkmodule -M -m -o {{ mongo_base_install }}/config/mongodb_cgroup_memory.mod {{ mongo_base_install }}/config/mongodb_cgroup_memory.te
+#     sudo /bin/semodule_package -o {{ mongo_base_install }}/config/mongodb_cgroup_memory.pp -m {{ mongo_base_install }}/config/mongodb_cgroup_memory.mod
+#     sudo /sbin/semodule -i {{ mongo_base_install }}/config/mongodb_cgroup_memory.pp
+#   become: true
+
+# - name: Create {{ mongo_base_install }}/config/mongod.conf
+#   template:
+#     src: mongod.conf.j2
+#     dest: "{{ mongo_base_install }}/config/mongod.conf"
+#     owner: "{{ mongo_user }}"
+#     group: "{{ mongo_group }}"
+#   become: true
+
+# - name: Setup non-default data and log path
+#   shell: |
+#     sudo /usr/sbin/semanage fcontext -a -t mongod_var_lib_t '{{ mongo_base_data }}.*'
+#     sudo /usr/bin/chcon -Rv -u system_u -t mongod_var_lib_t '{{ mongo_base_data }}'
+#     sudo /usr/sbin/restorecon -R -v '{{ mongo_base_data }}'
+#     sudo /usr/sbin/semanage fcontext -a -t mongod_log_t '{{ mongo_base_install }}/log.*'
+#     sudo /usr/bin/chcon -Rv -u system_u -t mongod_log_t '{{ mongo_base_install }}/log'
+#     sudo /usr/sbin/restorecon -R -v '{{ mongo_base_install }}/log'
+#   become: true
+
+- name: Check if file {{ mongo_base_install }}/ssl/rs0keyauth exists in the first node
+  stat:
+    path: "{{ mongo_base_install }}/ssl/rs0keyauth"
+  register: rs0keyauth
+  become: true
+  delegate_to: "{{ ansible_play_hosts | first}}"
+  run_once: true
+
+- block:
+    - name: Create secure authentication file
+      shell: openssl rand -base64 756 > files/rs0keyauth
+      become: true
+      delegate_to: localhost
+      run_once: true
+
+    - name: Copy authentication file to hosts
+      copy:
+        src: rs0keyauth
+        dest: "{{ mongo_base_install }}/ssl/rs0keyauth"
+        owner: "{{ mongo_user }}"
+        group: "{{ mongo_group }}"
+        mode: '0400'
+  when: not rs0keyauth.stat.exists
+
+- name: Enforce {{ mongo_base_install }}/ssl/rs0keyauth permissions
+  file:
+    dest: "{{ mongo_base_install }}/ssl/rs0keyauth"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+    mode: '0400'
+  when: rs0keyauth.stat.exists
+
+- name: Create mongod.conf
+  template:
+    src: mongod.service.j2
+    dest: "/usr/lib/systemd/system/mongod.service"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+  become: true
+#########
+# RECREATE DB
+#########
+# - name: Stop mongod service
+#   systemd:
+#     name: mongod.service
+#     state: stopped
+
+# - shell:
+#     cmd: "rm -rf {{ mongo_base_data }}/*"
+#########
+- name: Start mongod service
+  systemd:
+    name: mongod.service
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Copy create user script
+  template:
+    src: create_users.js.j2
+    dest: "{{ mongo_base_install }}/stage/create_users.js"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+  become: true
+
+- name: Create mongo users
+  shell: "/usr/local/bin/mongo --port {{ mongo_port }} --host {{ inventory_hostname }} < {{ mongo_base_install }}/stage/create_users.js"
+  become: true
+  become_user: "{{ mongo_user }}"
+  ignore_errors: true
+
+- name: Enable user authentication
+  blockinfile:
+    dest: "{{ mongo_base_install }}/config/mongod.conf"
+    marker: "# {mark} SECURITY KEYFILE"
+    block: |
+      security:
+        authorization: enabled
+        keyFile: {{ mongo_base_install }}/ssl/rs0keyauth
+  become: true
+  become_user: "{{ mongo_user }}"
+  register: authFile
+
+- name: Restart mongod service to enable user authentication
+  systemd:
+    state: restarted
+    name: mongod.service
+  become: true
+  when: authFile.changed
+
+- name: Install housekeeping scritps
+  template:
+    src: purge_mongo_logfile.sh.j2
+    dest: "{{ mongo_base_install }}/scripts/purge_mongo_logfile.sh"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+    mode: 0700
+  become: true
+  become_user: "{{ mongo_user }}"
+
+- name: Configure a crontab for mongodb logs housekeeping
+  cron:
+    user: "{{ mongo_user }}"
+    name: "Mongodb logs housekeeping"
+    weekday: "7"
+    minute: "0"
+    hour: "0"
+    job: "{{ mongo_base_install }}/scripts/purge_mongo_logfile.sh > /dev/null"
+  become: true
+...

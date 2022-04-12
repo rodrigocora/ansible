@@ -1,0 +1,127 @@
+---
+
+- name: Create mount point temporary directory
+  file:
+    path: /java_update
+    state: directory
+    owner: "{{ ignite_user }}"
+    group: "{{ ignite_group }}"
+
+- block:
+  - name: Add entry to /etc/exports
+    lineinfile:
+      path: /etc/exports
+      state: present
+      line: "/java_update   *(ro)"
+
+  - name: Restart nfs-server.service
+    systemd:
+      name: nfs-server.service
+      state: restarted
+
+  - name: Copy installer to remote server
+    copy:
+      src: "{{ file_name }}"
+      dest: /java_update/
+      owner: "{{ ignite_user }}"
+      group: "{{ ignite_group }}"
+
+  delegate_to: "{{ ansible_play_hosts | first }}"
+  run_once: true
+
+- name: Mount install directory
+  mount:
+    src: "{{ ansible_play_hosts | first }}:/java_update"
+    path: "/java_update"
+    state: mounted
+    fstype: nfs
+  when: inventory_hostname | lower != ( ansible_play_hosts | first ) | lower
+
+- name: Create JAVA_HOME temporary directory
+  file:
+    path: "{{ ignite_base_install }}/java_temp_123"
+    state: directory
+    owner: "{{ ignite_user }}"
+    group: "{{ ignite_group }}"
+
+- name: Decompress new JDK version
+  unarchive:
+    src: "/java_update/{{ file_name }}"
+    dest: "{{ ignite_base_install }}/java_temp_123"
+    owner: "{{ ignite_user }}"
+    group: "{{ ignite_group }}"
+    remote_src: true
+
+- name: Get JAVA_HOME directory name
+  find:
+    paths: "{{ ignite_base_install }}/java_temp_123"
+    recurse: false
+    file_type: directory
+  register: new_java_dir
+
+- name: Copy new JAVA_HOME to permanent path
+  command: mv "{{ new_java_dir.files[0].path }}" "{{ ignite_home }}/java/jdk-{{ java_version }}"
+  args:
+    creates: "{{ ignite_home }}/java/jdk-{{ java_version }}"
+
+- name: Get full path of old JAVA_HOME
+  stat:
+    path: "{{ java_home }}"
+  register: old_java_dir
+
+- name: Stop ignite service
+  systemd:
+    name: ignite
+    state: stopped
+
+- name: Create symbolic link to new JAVA_HOME
+  file:
+    src: "{{ ignite_home }}/java/jdk-{{ java_version }}"
+    dest:  "{{ java_home }}"
+    owner: "{{ ignite_user }}"
+    group: "{{ ignite_group }}"
+    state: link
+
+- name: Start ignite service
+  systemd:
+    name: ignite
+    state: started
+
+- name: Remove JAVA_HOME temporary directory
+  file:
+    path: "{{ ignite_base_install }}/java_temp_123"
+    state: absent
+
+- name: Backup old JAVA_HOME
+  archive:
+    path: "{{ old_java_dir.stat.lnk_source }}"
+    dest: "{{ old_java_dir.stat.lnk_source }}.tgz"
+    owner: "{{ ignite_user }}"
+    group: "{{ ignite_group }}"
+
+- name: Remove old JAVA_HOME
+  file:
+    path: "{{ old_java_dir.stat.lnk_source }}"
+    state: absent
+  when: java_version not in old_java_dir.stat.lnk_source
+
+- name: Unmount install directory
+  mount:
+    src: "{{ ansible_play_hosts | first }}:/java_update"
+    path: "/java_update"
+    state: unmounted
+    fstype: nfs
+  when: inventory_hostname | lower != ( ansible_play_hosts | first ) | lower
+
+- name: Remove entry from /etc/exports
+  lineinfile:
+    path: /etc/exports
+    state: absent
+    line: "/java_update   *(ro)"
+  delegate_to: "{{ ansible_play_hosts | first }}"
+  run_once: true
+
+- name: Remove mount point temporary directory
+  file:
+    path: /java_update
+    state: absent

@@ -1,0 +1,64 @@
+---
+
+- name: Stop services
+  systemd:
+    name: "{{ item.serv_name }}"
+    state: stopped
+  ignore_errors: "{{ item.ignore_err }}"
+  when: "{{ item.run }}"
+  with_items:
+    - { serv_name: "edb-as-12.service", ignore_err: false, run: true }
+    - { serv_name: "edb-efm-4.4.service", ignore_err: true, run: "{{ cluster }}" }
+
+- name: Update edb-as12-server package
+  yum:
+    name: "edb-as12-server"
+    state: latest
+
+- name: Fix PGDATA in the /usr/lib/systemd/system/edb-as-12.service file
+  lineinfile:
+    path: "/usr/lib/systemd/system/edb-as-12.service"
+    line: "Environment=PGDATA={{ postgres_pgdata }}"
+    regexp: '^Environment=PGDATA=.*'
+
+- name: Start services
+  systemd:
+    name: "{{ item.serv_name }}"
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ item.ignore_err }}"
+  when: "{{ item.run }}"
+  with_items:
+    - { serv_name: "edb-as-12.service", ignore_err: false, run: true }
+    - { serv_name: "edb-efm-4.4.service", ignore_err: true, run: "{{ cluster }}" }
+
+- block:
+  - name: Resume replication
+    shell: "/usr/edb/efm-4.4/bin/efm resume efm"
+    become_user: efm
+    register: resume_efm
+    ignore_errors: true
+    failed_when: "'Database is already running and is being monitored' not in resume_efm.stdout"
+
+  - name: Check replication status
+    shell: "/usr/edb/efm-4.4/bin/efm cluster-status efm"
+    register: postgres_rep_status
+    
+  - debug:
+      var: postgres_rep_status.stdout
+  when: "{{ cluster }}"
+
+
+- name: Remove repository
+  yum_repository:
+    name: edb_repo
+    state: absent
+
+- name: Remove temporary directory
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "/postgres_repo"
+    - "{{ postgres_home_install }}/postgres_repo"
+

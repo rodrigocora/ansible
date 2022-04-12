@@ -1,0 +1,128 @@
+---
+
+- block:
+  - name: Increase swap size to 10G
+    community.general.lvol:
+      vg: rhel_rhel7
+      lv: swap
+      size: "10240"
+
+
+  - name: Recreate swap to increase its size
+    shell:
+      cmd: |
+        swapoff /dev/mapper/rhel_rhel7-swap
+        mkswap -c /dev/mapper/rhel_rhel7-swap
+        swapon /dev/mapper/rhel_rhel7-swap
+    async: 6000
+    poll: 0
+    register: swap_resize
+  when: ansible_memory_mb.swap.total | int < 10200
+
+  become: true
+
+- name: Add repositories
+  yum_repository:
+    name: CentOS-7
+    description: Public CentOS-7 yum repo 
+    baseurl: http://ftp.heanet.ie/pub/centos/7/os/x86_64/
+    gpgcheck: true
+    gpgkey: http://ftp.heanet.ie/pub/centos/7/os/x86_64/RPM-GPG-KEY-CentOS-7
+
+- name: Copy epel rpm
+  copy:
+    src: epel-release-latest-7.noarch.rpm
+    dest: /tmp/
+
+- name: Ensure epel repo present
+  yum:
+    name: /tmp/epel-release-latest-7.noarch.rpm
+    state: present
+
+
+- name: Install ntp service
+  yum:
+    name: ntp
+
+- name: Make sure we have a 'wheel' group
+  group:
+    name: wheel
+    state: present
+
+- name: Allow 'wheel' group to have passwordless sudo
+  lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: '^%wheel'
+    line: '%wheel ALL=(ALL) NOPASSWD: ALL'
+    validate: 'visudo -cf %s'
+
+- name: Add ansible user
+  user:
+    name: ansible
+    shell: /bin/bash
+    groups: wheel
+    append: yes
+    createhome: yes
+    state: present
+
+- name: Modify sshd_config
+  lineinfile: 
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.newline }}"
+  with_items:
+    - { regexp: '^.*X11Forwarding\s+(yes|no).*$', newline: 'X11Forwarding yes' }
+    - { regexp: '^.*X11UseLocalhost\s+(yes|no).*$', newline: 'X11UseLocalhost no' }
+    - { regexp: '^.*PasswordAuthentication\s+(yes|no).*$', newline: 'PasswordAuthentication yes' }
+  register: sshd_config
+
+- name: Restart sshd service
+  service:
+    name: sshd
+    state: restarted
+  when: sshd_config.changed
+
+- name: Remove 127.0.1.1 line from /etc/hosts
+  lineinfile:
+    path: "/etc/hosts"
+    regexp: '^127\.0\.1\.1.*'
+    state: absent
+
+- name: Create installer/patches repo directory
+  file:
+    path: "{{ item }}"
+    owner: "54321"
+    group: "54321"
+    state: directory
+  loop:
+    - "/app/nfs_server/db/19.3.0/install"
+    - "/app/nfs_server/db/19.3.0/patches"
+
+# - name: Copy installation files
+#   copy:
+#     src: "{{ item.src }}"
+#     dest: "{{ item.dst }}"
+#   with_items:
+#     - { src: "/mnt/c/Users/NB26981/OneDrive\ -\ Novabase/oracle_db_files/installers/LINUX.X64_193000_grid_home.zip", dst: "/app/nfs_server/db/19.3.0/install" }
+#     - { src: "/mnt/c/Users/NB26981/OneDrive\ -\ Novabase/oracle_db_files/installers/LINUX.X64_193000_db_home.zip", dst: "/app/nfs_server/db/19.3.0/install" }
+#     - { src: "/mnt/c/Users/NB26981/OneDrive\ -\ Novabase/oracle_db_files/patches/p6880880_190000_Linux-x86-64.zip", dst: "/app/nfs_server/db/19.3.0/patches" }
+#     - { src: "/mnt/c/Users/NB26981/OneDrive\ -\ Novabase/oracle_db_files/patches/p32578973_190000_Linux-x86-64.zip", dst: "/app/nfs_server/db/19.3.0/patches" }
+
+- name: Mount /dev/shm 
+  mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: defaults,size=3g
+    state: present
+
+- name: Wait for swap resize to finish
+  async_status:
+    jid: '{{ swap_resize.ansible_job_id }}'
+  register: swap_resize_job
+  until: swap_resize_job.finished
+  ignore_errors: true
+  retries: 1000
+  delay: 5
+  when: swap_resize.changed

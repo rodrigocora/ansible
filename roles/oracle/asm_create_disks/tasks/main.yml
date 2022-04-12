@@ -1,0 +1,9 @@
+---
+# Create ASM DISKS
+- name: Create partitions and asm disks 
+  run_once: true
+  vars:
+    disk_group_name: "{{ item.key }}"
+    disk_devices: "{{ item.value }}"
+  include: asm_create_disk.yml
+  loop: "{{ lookup('dict', asm_diskgroups) }}"

@@ -1,0 +1,25 @@
+---
+- name: Create partitions for grid ASM
+  parted:
+    device: "{{ item_list }}"
+    number: 1
+    state: present
+  loop: "{{ disk_devices }}"
+  loop_control:
+    loop_var: item_list 
+
+- name: Check if the oracleasm disks already exists 
+  shell: '/usr/sbin/oracleasm listdisks'
+  register: oracleasm_disklist
+
+- name: Create oracleasm disks
+  shell: "oracleasm createdisk {{ disk_group_name | upper }}_{{ '%02d' | format(counter + 1 | int) }} {{ item_list }}1"
+  with_items:
+    - "{{ disk_devices }}"
+  loop_control:
+    index_var: counter
+    loop_var: item_list
+  when: oracleasm_disklist.stdout_lines | select('search', disk_group_name | upper + '_' + '%02d' | format(counter + 1 | int) ) | list | length == 0
+   
+          
+   

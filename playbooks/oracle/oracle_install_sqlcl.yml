@@ -1,0 +1,42 @@
+- hosts: oracle_servers
+  remote_user: cfaptsilva
+  gather_facts: false
+  become: true
+  vars:
+    - oracle_db_scripts: "/opt/oracle/dba_scripts"
+
+  tasks:
+  - name: Create login.sql
+    blockinfile:
+      path: "{{ oracle_db_scripts }}/login.sql"
+      create: true
+      mode: "0640"
+      owner: "{{ oracle_user }}"
+      group: "{{ oracle_group }}"
+      marker: "-- {mark} SQLCl configuration" 
+      block: |
+        set statusbar on
+        set statusbar add editmode 
+        set statusbar add txn
+        set statusbar add timing
+        set highlighting on
+        set highlighting keyword foreground green
+        set highlighting identifier foreground magenta
+        set highlighting string foreground yellow
+        set highlighting number foreground cyan
+        set highlighting comment background white
+        set highlighting comment foreground black 
+        set encoding utf-16
+
+  - name: Unarchive sqlcl to /opt
+    unarchive:
+      src: sqlcl-latest.zip
+      dest: /opt
+    become: true
+
+  - name: Create alias to sql command
+    lineinfile:
+      line: alias sql="/opt/sqlcl/bin/sql"
+      path: "{{ oracle_user_home }}/.bash_profile"
+      state: present
+    become: true

@@ -1,0 +1,17 @@
+---
+
+- name: Create scripts directory
+  file:
+    path: "{{ oracle_db_scripts }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group }}"
+    mode: "0775"
+
+- name: Install rman response files and bash script
+  template:
+    src: "{{ item }}"
+    dest: "{{ oracle_db_scripts }}/{{ item[:-3] }}"
+  with_items:
+    - rman_backup_archive.rcv.j2
+    - rman_backup_level0.rcv.j2
+    - rman_backup_level1.rcv.j2

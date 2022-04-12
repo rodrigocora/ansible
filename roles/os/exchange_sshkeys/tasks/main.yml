@@ -1,0 +1,57 @@
+---
+
+- name: Copy ssh keys to localhost
+  fetch: 
+    src: "{{ home }}/.ssh/id_rsa.pub"
+    dest: "/tmp/keys/{{ username }}/{{ ansible_host }}_id_rsa.pub"
+    flat: true
+
+- find:
+    paths: "/tmp/keys/{{ username }}"
+    patterns: '*.pub'
+    recurse: true
+  register: file_list
+  delegate_to: localhost
+
+- name: Insert public keys to "{{ username }}"
+  authorized_key:
+    user: "{{ username}}"
+    state: present
+    key: "{{ lookup('file', '{{ item.path }}' ) }}"
+  with_items:
+    - "{{ file_list.files }}"
+
+# - name: Install bind-utils
+#   yum:
+#     name: bind-utils
+#     state: present
+
+# - name: Fetch known_hosts file
+#   fetch:
+#     src: /tmp/known_hosts
+#     dest: /tmp/
+#     flat: true
+#   delegate_to: "{{ play_hosts | first }}"
+#   run_once: true
+
+# - name: Append fingerprints to known_hosts file on remote hosts
+#   blockinfile:
+#     path: "{{ home }}/.ssh/known_hosts"
+#     block: "{{lookup('file', '/tmp/known_hosts') }}"
+#     owner: "{{ username }}"
+#     group: "{{ group }}"
+#     backup: true
+#     create: true
+#     mode: "0600"
+#   become: true
+
+# - name: Remove local copy of the fingerprint file
+#   local_action: 
+#     module: file 
+#     dest: "{{ item }}" 
+#     state: absent
+#   changed_when: false
+#   run_once: true
+#   with_items:
+#     - "{{ file_list.files }}"
+#     - "/tmp/known_hosts"

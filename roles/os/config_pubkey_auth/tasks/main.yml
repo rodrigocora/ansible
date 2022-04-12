@@ -1,0 +1,17 @@
+- name: Configure pubkey authentication
+  blockinfile:
+    path: /etc/ssh/sshd_config.d/allow_pubkey_authentication.conf
+    create: true
+    block: |
+      PasswordAuthentication yes
+      AuthorizedKeysFile .ssh/authorized_keys
+      PubkeyAuthentication yes
+      AllowAgentForwarding yes
+      AllowTcpForwarding yes
+      PermitRootLogin yes
+      X11Forwarding yes
+  become: true
+
+- name: Restart sshd service
+  service: sshd
+    state: restarted

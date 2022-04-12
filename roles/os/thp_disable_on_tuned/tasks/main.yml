@@ -1,0 +1,22 @@
+---
+- name: Create virtual-guest-no-thp directory
+  file:
+    dest: /etc/tuned/virtual-guest-no-thp
+    state: directory
+  become: true
+
+- name: Configure /etc/tuned/virtual-guest-no-thp/tuned.conf file
+  blockinfile:
+    dest: /etc/tuned/virtual-guest-no-thp/tuned.conf
+    create: true
+    block: |
+      [main]
+      include=virtual-guest
+      [vm]
+      transparent_hugepages=never
+  become: true
+
+- name: Enable the new profile
+  shell: /sbin/tuned-adm profile virtual-guest-no-thp
+  become: true
+...

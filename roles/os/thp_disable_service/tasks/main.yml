@@ -6,4 +6,12 @@
     owner: root
     group: root
   become: true
+
+- name: Start disable-transparent-huge-pages service
+  systemd:
+    state: started
+    name: disable-transparent-huge-pages.service
+    enabled: true
+    daemon_reload: true
+  become: true
 ...

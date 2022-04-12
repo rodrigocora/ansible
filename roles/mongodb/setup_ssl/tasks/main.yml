@@ -1,0 +1,76 @@
+---
+- name: Create/check directory {{ mongo_base_install }}/ssl permisions
+  file:
+    dest: "{{ mongo_base_install }}/ssl"
+    mode: '0700'
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+    state: directory
+
+- name: Create {{ mongo_base_install }}/ssl/{{ inventory_hostname_short | lower }}.pem
+  blockinfile:
+    block: "{{ item }}"
+    dest: "{{ mongo_base_install }}/ssl/{{ inventory_hostname_short | lower }}.pem"
+    create: true
+    marker: "# {mark} ANSIBLE MANAGED BLOCK {{ ansible_loop.index }}"
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+    mode: '0600'
+  with_items:
+    - "{{ lookup('file', 'certificates/{{ env }}/server/'+certificate_file_basename+'.key') }}"
+    - "{{ lookup('file', 'certificates/{{ env }}/server/'+certificate_file_basename+'.crt') }}"
+  loop_control:
+    extended: true
+
+- name: Convert root certificates
+  shell: >
+    openssl x509 -inform der 
+    -in 'files/certificates/root/{{ item }}' 
+    -outform pem 
+    -out 'files/certificates/root/{{ item[:-3 ]}}pem'
+  with_items:
+    - "{{ root_cert_files }}"
+  run_once: true
+  delegate_to: localhost
+
+- name: Create rootCAfullchain.pem
+  blockinfile:
+    block: "{{ lookup('file', 'files/certificates/root/'+item[:-3]+'pem') }}"
+    create: true
+    marker: "# {mark} root_cert ANSIBLE MANAGED BLOCK {{ ansible_loop.index }}"
+    dest: "files/certificates/root/rootCAfullchain.pem"
+  with_items:
+    - "{{ root_cert_files }}"
+  loop_control:
+    extended: true
+  run_once: true
+  delegate_to: localhost
+
+- name: Copy rootCAfullchain.pem to {{ mongo_base_install }}/ssl/
+  copy:
+    src: certificates/root/rootCAfullchain.pem
+    dest: "{{ mongo_base_install }}/ssl/"
+    mode: '0600'
+    owner: "{{ mongo_user }}"
+    group: "{{ mongo_group }}"
+
+- name: Add tls config to {{ mongo_base_install }}/config/mongod.conf
+  blockinfile:
+    marker: "# {mark} TLS CONFIG"
+    dest: "{{ mongo_base_install }}/config/mongod.conf"
+    block: |
+      net:
+        tls:
+          mode: requireTLS
+          certificateKeyFile: {{ mongo_base_install }}/ssl/{{ inventory_hostname_short | lower }}.pem
+          CAFile: {{ mongo_base_install }}/ssl/rootCAfullchain.pem
+          allowConnectionsWithoutCertificates: true  
+          disabledProtocols: TLS1_0,TLS1_1
+  register: tls_config
+
+- name: Restart mongod service
+  systemd:
+    state: restarted
+    name: mongod.service
+  when: tls_config.changed
+...

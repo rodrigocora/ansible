@@ -1,0 +1,104 @@
+---
+
+- name: Check current mongodb current version
+  shell: '{{ mongo_home_install }}/bin/mongod --version  | grep "db version"'
+  become: true
+  become_user: "{{ mongo_user }}"
+  register: mongodb_current_version
+  changed_when: false
+
+- name: Upgrade/Downgrade MongoDB
+  when: upgrade.version not in mongodb_current_version.stdout
+  become: true
+  block:
+  
+  - name: Create temporary directory
+    file:
+      path: "{{ mongo_base_install }}/tmp_install"
+      state: directory
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+
+  - name: Decompress new version to a temporary directory
+    unarchive:
+      src: "{{ upgrade.filename }}"
+      dest: "{{ mongo_base_install }}/tmp_install"
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+        
+  - name: Get new installation directory name
+    find:
+      path: "{{ mongo_base_install }}/tmp_install"
+      recurse: false
+      file_type: directory
+    register: new_installation
+
+  - name: Move new installation to {{ mongo_base_install }}
+    shell: "cp -r {{ new_installation.files[0].path }} {{ mongo_base_install }}"
+    args:
+      creates: "{{ mongo_base_install }}/{{ new_installation.files[0].path | basename }}"
+        
+  - name: Set installation directory permissions
+    file:
+      path: "{{ mongo_base_install }}/{{ new_installation.files[0].path | basename }}"
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+      recurse: true
+      state: directory
+
+  - name: Remove temporary directory
+    file:
+      path: "{{ mongo_base_install }}/tmp_install"
+      state: absent
+
+  - name: Stop service
+    systemd:
+      name: mongod.service
+      state: stopped
+  
+  - name: Create backup directory
+    file:
+      path: "{{ mongo_base_install }}/backup"
+      state: directory
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+
+  - name: Backup current version
+    vars:
+      date: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+    archive:
+      path: "{{ mongo_home_install }}"
+      dest: "{{ mongo_base_install }}/backup/mongodb_install_bkp_{{ date }}.tgz"
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+    ignore_errors: true
+        
+  - name: Backup data 
+    vars:
+      date: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+    archive:
+      path: "{{ mongo_base_data }}"
+      dest: "{{ mongo_base_install }}/backup/mongodb_data_bkp_{{ date }}.tgz"
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+
+  - name: Remove old home
+    file:
+      path: "{{ mongo_home_install }}"
+      state: absent
+
+  - name: Create symlink to new version
+    file: 
+      src: "{{ mongo_base_install }}/{{ new_installation.files[0].path | basename }}"
+      dest: "{{ mongo_home_install }}"
+      state: link
+      owner: "{{ mongo_user }}"
+      group: "{{ mongo_group }}"
+      
+  - name: Start mongod service
+    become: true
+    systemd:
+      name: mongod.service
+      state: started
+
+...

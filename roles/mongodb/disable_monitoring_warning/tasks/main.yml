@@ -1,0 +1,31 @@
+---
+
+- name: Check if node is primary 
+ shell: >
+   /usr/local/bin/mongo 
+   -u mongo-root
+   -p {{ mongo_root_pass }}
+   --port {{ mongo_port }} 
+   --host {{ inventory_hostname }}
+   --tls
+   --quiet
+   --eval "rs.isMaster().ismaster"
+ become: true
+ become_user: "{{ mongo_user }}"
+ register: is_primary
+   
+- name: Disable free monitoring warning
+ shell: >
+   /usr/local/bin/mongo 
+   -u mongo-root
+   -p {{ mongo_root_pass }}
+   --port {{ mongo_port }} 
+   --host {{ inventory_hostname }}
+   --tls
+   --quiet
+   --eval "db.disableFreeMonitoring()"
+ become: true
+ become_user: "{{ mongo_user }}"
+ when: is_primary.stdout | bol
+
+...

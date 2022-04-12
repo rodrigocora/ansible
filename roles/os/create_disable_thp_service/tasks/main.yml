@@ -1,0 +1,9 @@
+---
+- name: Create disable-transparent-huge-pages.service file
+  copy:
+    src: disable-transparent-huge-pages.service
+    dest: /etc/systemd/system/
+    owner: root
+    group: root
+  become: true
+...

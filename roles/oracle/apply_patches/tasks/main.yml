@@ -1,0 +1,72 @@
+---
+
+- name: Fix misc permissions
+  file:
+    path: "{{ item.file_path }}"
+    owner: "{{ item.file_owner }}"
+    group: "{{ item.file_group }}"
+    mode: "{{ item.file_mode }}"
+    recurse: true
+  with_items:
+    - { file_path: "{{ oracle_base_install }}/cfgtoollogs/sqlpatch", file_owner: "{{ oracle_user }}", file_group: "{{ oracle_group }}", file_mode: "u=rwX,g=rwX,o=rX" }
+    - { file_path: "/opt/oraInventory/ContentsXML", file_owner: "{{ grid_user }}", file_group: "{{ oracle_group }}", file_mode: "u=rwX,g=rwX,o=rX" }
+    - { file_path: "{{ patch_temp_dir }}", file_owner: "{{ oracle_user }}", file_group: "{{ oracle_group }}", file_mode: "u=rwX,g=rwX,o=rX" }
+  
+- name: Create patch directory
+  file:
+    path: "{{ patch_temp_dir }}"
+    owner: "{{ oracle_user }}"
+    group: "{{ oracle_group }}"
+    recurse: true
+
+- name: Unarchive patch
+  unarchive:
+    src: "{{ patch_filename }}"
+    dest: "{{ patch_temp_dir }}"
+    owner: "{{ oracle_user }}"  
+    group: "{{ oracle_group }}"
+    mode: 0770
+    remote_src: false
+
+# - name: Rollback patch with opatchauto
+#   shell: "{{ oracle_home_patch }}/OPatch/opatchauto rollback {{ patch_temp_dir }}/{{ patch_id }}"
+#   become: true
+#   register: patch_rollback
+
+  # failed_when: "'Patching is completed successfully' not in patch_rollback.stdout"
+  # when: 
+  #   - '"SUCCESSFULLY analyzed to be rolled back" in patch_analyze.stdout'
+  #   - '"" in patch_analyze.stdout'
+  #   - not vRun_analyze_only
+
+- debug:
+    msg: "{{ patch_rollback.stdout }}"
+
+- name: Run apply patch analyze
+  shell: "{{ oracle_home_patch }}/OPatch/opatchauto apply {{ patch_temp_dir }}/{{ patch_id }} -analyze"
+  throttle: 1
+  become: true
+  register: patch_analyze
+
+- debug:
+    msg: "{{ patch_analyze.stdout }}"
+
+- name: Apply patch with opatchauto
+  shell: "{{ oracle_home_patch }}/OPatch/opatchauto apply {{ patch_temp_dir }}/{{ patch_id }}"
+  become: true
+  register: patch_apply
+  failed_when: "'Patching is completed successfully' not in patch_apply.stdout"
+  when: 
+    - '"SUCCESSFULLY analyzed to be applied" in patch_analyze.stdout'
+    - '"conflict" not in patch_analyze.stdout | lower'
+    - not vRun_analyze_only
+
+- debug:
+    msg: "{{ patch_apply.stdout }}"
+
+- name: Clean up
+  file:
+    path: "{{ patch_temp_dir }}"
+    state: absent
+
+    

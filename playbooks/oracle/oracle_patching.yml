@@ -1,0 +1,31 @@
+---
+- hosts: oracle_servers
+  become: true
+  remote_user: ansible
+  vars:
+    vopatch_path: p6880880_190000_Linux-x86-64.zip
+    
+  roles:
+
+    - role: ../../roles/oracle/ahf_setup
+      vars:
+        ahf_version: "21.4.2"
+
+    - name: Upgrade opatch in crs_home
+      role: ../../roles/oracle/upgrade_opatch
+      vars:
+        op_user: "{{ grid_user }}"
+        op_group: "{{ oracle_group }}"
+        op_path: "{{ vopatch_path }}"
+        op_home: "{{ grid_home_install }}"
+        ansible_remote_tmp: /tmp
+    
+    - name: Upgrade opatch in db_home
+      role: ../../roles/oracle/upgrade_opatch
+      vars:
+        op_user: "{{ oracle_user }}"
+        op_group: "{{ oracle_group }}"
+        op_path: "{{ vopatch_path }}"
+        op_home: "{{ oracle_home_install }}"
+        ansible_remote_tmp: /tmp
+

@@ -1,0 +1,23 @@
+use admin
+db.createUser(
+  {
+    user: "mongo-root",
+    pwd: "{{ mongo_root_pass }}",
+    roles: [ { role: "userAdminAnyDatabase", db: "admin" }, "readWriteAnyDatabase", "root"]
+  }
+)
+
+db.createUser({
+    user: "ms-user",
+    pwd: "{{ ms_user_pass }}", 
+    roles: [ { role: "userAdminAnyDatabase", db: "admin" }, "readWriteAnyDatabase"]
+  }
+)
+
+db.createUser(
+  {
+    user: "monitor",
+    pwd: "{{ monitor_pass }}", 
+    roles: [ { role: "userAdminAnyDatabase", db: "admin" }, "readAnyDatabase"]
+  }
+)

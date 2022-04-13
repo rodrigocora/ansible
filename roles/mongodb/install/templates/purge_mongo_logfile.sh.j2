@@ -1,0 +1,16 @@
+#!/bin/bash
+
+host={{ inventory_hostname }}
+user=mongo-root
+pass={{ mongo_root_pass }}
+port={{ mongo_port }}
+rt=`mongo --host $host -u $user -p $pass --port $port --authenticationDatabase admin --eval "db.adminCommand( { logRotate : 1 } )" | grep "ok"`
+echo "$rt"
+### compress newly rotated
+for f in /opt/mongo/log/mongod.log.????-??-??T??-??-??;
+do
+        gzip "$f"
+        rm -f "$f"
+done
+### remove files older than x days
+find /opt/mongo/log/mongod.log.????-??-??T??-??-??.gz -mtime +90 -delete

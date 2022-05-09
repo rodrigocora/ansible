@@ -28,31 +28,19 @@
     mode: 0770
     remote_src: false
 
-# - name: Rollback patch with opatchauto
-#   shell: "{{ oracle_home_patch }}/OPatch/opatchauto rollback {{ patch_temp_dir }}/{{ patch_id }}"
-#   become: true
-#   register: patch_rollback
-
-  # failed_when: "'Patching is completed successfully' not in patch_rollback.stdout"
-  # when: 
-  #   - '"SUCCESSFULLY analyzed to be rolled back" in patch_analyze.stdout'
-  #   - '"" in patch_analyze.stdout'
-  #   - not vRun_analyze_only
-
-- debug:
-    msg: "{{ patch_rollback.stdout }}"
-
 - name: Run apply patch analyze
   shell: "{{ oracle_home_patch }}/OPatch/opatchauto apply {{ patch_temp_dir }}/{{ patch_id }} -analyze"
   throttle: 1
   become: true
   register: patch_analyze
 
-- debug:
+- name: Show analyze results
+  debug:
     msg: "{{ patch_analyze.stdout }}"
 
 - name: Apply patch with opatchauto
   shell: "{{ oracle_home_patch }}/OPatch/opatchauto apply {{ patch_temp_dir }}/{{ patch_id }}"
+  throttle: 1
   become: true
   register: patch_apply
   failed_when: "'Patching is completed successfully' not in patch_apply.stdout"
@@ -61,8 +49,10 @@
     - '"conflict" not in patch_analyze.stdout | lower'
     - not vRun_analyze_only
 
-- debug:
+- name: Show patching results
+  debug:
     msg: "{{ patch_apply.stdout }}"
+  when: patch_apply is not skipped
 
 - name: Clean up
   file:

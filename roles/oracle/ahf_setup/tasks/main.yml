@@ -1,0 +1,41 @@
+---
+- name: Get current AHF version
+  shell: ahfctl version
+  register: current_ahf_version
+  failed_when: false
+  changed_when: false
+
+- block:
+  - name: Create temporary dir
+    file:
+      path: /tmp/ahf_install
+      state: directory
+
+  - name: Unarchive AHF installer
+    unarchive:
+      src: "AHF-LINUX_v{{ ahf_version }}.zip"
+      dest: /tmp/ahf_install
+
+  - name: Create AHF directories
+    file: 
+      path: "{{ ahf_data_dir }}"
+      state: directory
+
+  - name: Install AHF
+    shell: > 
+      /tmp/ahf_install/ahf_setup
+      -ahf_loc "{{ ahf_install_dir }}" 
+      -data_dir "{{ ahf_data_dir }}"
+      -silent
+    register: install_output
+
+  - debug: 
+      msg: "{{ install_output.stdout }}"
+
+  - name: Remove ahf install files
+    file: 
+      path: /tmp/ahf_install
+      state: absent
+    when: install_output.rc == 0
+  
+  when: ahf_version not in current_ahf_version.stdout

@@ -1,0 +1,48 @@
+---
+
+- name: Get OPATCH_VERSION from new opatch file
+  shell: |
+    zipgrep "OPATCH_VERSION" {{ vopatch_path }} OPatch/version.txt | cut -d: -f3
+  run_once: true
+  delegate_to: localhost
+  args:
+    chdir: ./files
+  register: opatch_file_version
+  changed_when: false
+
+- name: "Check OPatch version"
+  shell: "{{ op_home }}/OPatch/opatch version | grep Version | awk '{print $3}'"
+  register: opatch_check
+  ignore_errors: false
+  changed_when: false
+  become: true
+
+- name: Upgrade OPatch
+  block:
+  - name: Get date time
+    setup:
+      filter: ansible_date_time
+
+  # - name: Backup current OPatch directory
+  #   copy:
+  #     src: "{{ op_home }}/OPatch"
+  #     dest: "{{ op_home }}/OPatch_{{ ansible_date_time.iso8601_basic_short }}"
+  #     owner: "{{ op_user }}"
+  #     group: "{{ op_group }}"
+  #     remote_src: true
+  #   ignore_errors: true
+
+  - name: Remove old OPatch directory
+    file:
+      path: "{{ op_home }}/OPatch"
+      state: absent
+
+  - name: Upgrade OPatch
+    unarchive:
+      src: "{{ op_path }}"
+      dest: "{{ op_home }}/"
+      owner: "{{ op_user }}"
+      group: "{{ op_group }}"
+      mode: "0775"
+  when: "opatch_file_version.stdout not in opatch_check.stdout"
+

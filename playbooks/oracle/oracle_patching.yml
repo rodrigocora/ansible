@@ -3,13 +3,15 @@
   become: true
   remote_user: ansible
   vars:
-    vopatch_path: p6880880_190000_Linux-x86-64.zip
+    vopatch_path: p6880880_210000_Linux-x86-64.zip
     
   roles:
 
     - role: ../../roles/oracle/ahf_setup
       vars:
-        ahf_version: "21.4.2"
+        ahf_version: "22.1.0"
+        ahf_install_dir: "/opt/oracle.ahf"
+        ahf_data_dir: "/opt/oracle.ahf/data"
 
     - name: Upgrade opatch in crs_home
       role: ../../roles/oracle/upgrade_opatch
@@ -29,3 +31,31 @@
         op_home: "{{ oracle_home_install }}"
         ansible_remote_tmp: /tmp
 
+
+- hosts: oracle_servers
+  become: true
+  remote_user: ansible
+  serial: 1
+  vars:      
+    vpatch_id: "33810130"
+    vpatch_path: "p33810130_190000_Linux-x86-64.zip"
+    vpatch_temp_dir: "{{ oracle_base_install }}/stage"
+
+  roles:
+    - name: Apply patch
+      role: ../../roles/oracle/apply_patches
+      vars:
+        patch_temp_dir: "{{ vpatch_temp_dir }}"
+        patch_id: "{{ vpatch_id }}"
+        patch_filename: "{{ vpatch_path }}"
+        oracle_home_patch: "{{ grid_home_install }}"
+        ansible_remote_tmp: /tmp
+        vRun_analyze_only: false
+
+- hosts: oracle_servers
+  become: true
+  remote_user: ansible
+  roles:
+    - role: ../../roles/os/get_installed_java_version
+
+  

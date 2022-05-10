@@ -1,0 +1,23 @@
+connect target "{{ backup.username}}/{{ backup.password }}@(DESCRIPTION = (ADDRESS = (PROTOCOL = TCPS)(HOST = {{ network.scan }})(PORT = {{ backup_catalog.port }}))(CONNECT_DATA = (SERVER = DEDICATED) (SERVICE_NAME = {{ oracle_db_name }}))) as sysbackup"
+connect catalog {{ backup_catalog.username }}/{{ backup_catalog.password }}@{{ backup_catalog.host }}:{{ backup_catalog.port }}/{{ backup_catalog.service_name }}
+
+run
+{
+set command id to 'BKP_ARCH_{{ oracle_db_name }}';
+{% for item in range( backup.parallel_channels ) %}
+allocate channel t{{ item }} type {{ backup.backup_type }} {{ backup.tape_parameter }};
+{% endfor %}
+BACKUP AS BACKUPSET FORMAT 'rman_{{ oracle_db_name | lower }}_arc_f_%T_%s_%U.bak' ARCHIVELOG ALL DELETE INPUT;
+BACKUP CURRENT CONTROLFILE;
+{% for item in range( backup.parallel_channels ) %}
+release channel t{{ item }};
+{% endfor %}
+
+allocate channel m1 type {{ backup.backup_type }} {{ backup.tape_parameter }};
+CROSSCHECK BACKUP;
+CROSSCHECK ARCHIVELOG ALL;
+DELETE NOPROMPT OBSOLETE;
+DELETE NOPROMPT EXPIRED BACKUP;
+DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;
+release channel m1;
+}

@@ -1,0 +1,17 @@
+---
+- name: Get java installed versions
+  become: true
+  shell: |
+    find / -name java -type f -not -path "/var/lib/alternatives/*" 2> /dev/null | while read java_exec; do 
+    java_version=$($java_exec -version 2>&1 | grep "java version" | cut -d" " -f3 | tr -d '"')
+    padding="-----------------------------------------------------------------------------------------"
+    len=$(echo -n $java_exec | wc -m)
+    printf "%s%s %s\n" "$java_exec " "${padding:${len}}" "$java_version"
+    done
+  register: installed_java_ver
+
+- name: List installed java version
+  debug:
+    msg: "{{ installed_java_ver.stdout }}"
+...
+

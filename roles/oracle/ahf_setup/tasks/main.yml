@@ -28,6 +28,8 @@
       -data_dir "{{ ahf_data_dir }}"
       -silent
     register: install_output
+    environment:
+      umask: "0022"
 
   - debug: 
       msg: "{{ install_output.stdout }}"
